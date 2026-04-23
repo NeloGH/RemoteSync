@@ -1,0 +1,10 @@
+{
+    // Show the output panel automatically when an error occurs
+    "show_panel_on_error": true,
+
+    // Auto-hide the output panel N seconds after all operations finish (0 = keep open always)
+    "auto_hide_panel": 4,
+
+    // Log successful uploads/downloads to the output panel
+    "log_operations": true
+}

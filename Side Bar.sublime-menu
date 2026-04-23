@@ -1,0 +1,73 @@
+[
+    { "caption": "-" },
+    {
+        "caption": "RemoteSync",
+        "children": [
+            {
+                "caption": "Setup Remote Server...",
+                "command": "remote_sync_create_config_sidebar",
+                "args": { "dirs": [] }
+            },
+            { "caption": "-" },
+            {
+                "caption": "Upload File",
+                "command": "remote_sync_upload_file_sidebar",
+                "args": { "paths": [] }
+            },
+            {
+                "caption": "Upload Folder",
+                "command": "remote_sync_upload_folder",
+                "args": { "dirs": [] }
+            },
+            {
+                "caption": "Download File",
+                "command": "remote_sync_download_file_sidebar",
+                "args": { "paths": [] }
+            },
+            {
+                "caption": "Download Folder",
+                "command": "remote_sync_download_folder",
+                "args": { "dirs": [] }
+            },
+            { "caption": "-" },
+            {
+                "caption": "Rename Local and Remote",
+                "command": "remote_sync_rename_local_and_remote",
+                "args": { "paths": [] }
+            },
+            { "caption": "-" },
+            {
+                "caption": "Delete Local and Remote",
+                "command": "remote_sync_delete_local_and_remote",
+                "args": { "paths": [] }
+            },
+            {
+                "caption": "Delete Remote Folder",
+                "command": "remote_sync_delete_remote_folder",
+                "args": { "dirs": [] }
+            },
+            {
+                "caption": "Delete Remote File",
+                "command": "remote_sync_delete_remote_file_sidebar",
+                "args": { "paths": [] }
+            },
+            { "caption": "-" },
+            {
+                "caption": "Diff with Remote",
+                "command": "remote_sync_diff_remote_paths",
+                "args": { "paths": [] }
+            },
+            {
+                "caption": "Browse Server",
+                "command": "remote_sync_browse",
+                "args": { "dirs": [] }
+            },
+            { "caption": "-" },
+            {
+                "caption": "Edit Server Config...",
+                "command": "remote_sync_edit_server_config",
+                "args": { "paths": [] }
+            }
+        ]
+    }
+]

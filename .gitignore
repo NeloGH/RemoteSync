@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Sublime Text generated
+package-metadata.json
+
+# SFTP/FTP config files (contain server credentials)
+sftp-config.json
+remote-sync-config.json
+
+# Logs
+*.log
+.claudesync*

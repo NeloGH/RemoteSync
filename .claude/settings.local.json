@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(python -c \"import py_compile; [py_compile.compile\\(f, doraise=True\\) for f in [''config.py'', ''errors.py'', ''panel.py'', ''queue.py'']]\")",
+      "Bash(python -c \":*)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''RemoteSync.py'', doraise=True\\); print\\(''RemoteSync.py: OK''\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''scanner.py'', doraise=True\\); print\\(''OK''\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''RemoteSync.py'', doraise=True\\); print\\(''OK''\\)\")",
+      "Bash(powershell -Command \"Test-NetConnection -ComputerName domhostseo.com -Port 22 -WarningAction SilentlyContinue | Select-Object -Property ComputerName,RemotePort,TcpTestSucceeded\")",
+      "Bash(powershell -Command \"Test-NetConnection -ComputerName 67.223.118.21 -Port 21098 -WarningAction SilentlyContinue | Select-Object RemotePort,TcpTestSucceeded\")",
+      "Bash(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p 21098 domhtkvl@67.223.118.21 \"echo OK\")",
+      "Bash(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -i ~/.ssh/id_rsa -p 21098 domhtkvl@67.223.118.21 \"echo OK\")",
+      "Bash(where puttygen:*)",
+      "Bash(where ssh-keygen:*)",
+      "Bash(\"C:\\\\Program Files\\\\PuTTY\\\\puttygen.exe\" \"D:\\\\Servidores\\\\CPanel\\\\DomHostSeo\\\\domhostseo_private_key.ppk\" -O private-openssh -o \"D:\\\\Servidores\\\\CPanel\\\\DomHostSeo\\\\domhostseo_key_openssh\")",
+      "Bash(pip install:*)",
+      "Bash(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -i \"D:/Servidores/CPanel/DomHostSeo/domhostseo_key_openssh\" -p 21098 domhtkvl@67.223.118.21 \"echo SSH_OK\")",
+      "Bash(icacls \"D:\\\\Servidores\\\\CPanel\\\\DomHostSeo\\\\domhostseo_key_openssh\")",
+      "Bash(icacls \"D:\\\\Servidores\\\\CPanel\\\\DomHostSeo\\\\domhostseo_key_openssh\" /inheritance:r /grant:r \"%USERNAME%:\\(R\\)\")",
+      "Bash(icacls \"D:\\\\Servidores\\\\CPanel\\\\DomHostSeo\\\\domhostseo_key_openssh\" /inheritance:r /grant:r \"Einelo:\\(R\\)\")",
+      "Bash(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes -i \"D:/Servidores/CPanel/DomHostSeo/domhostseo_key_openssh\" -p 21098 domhtkvl@67.223.118.21 \"echo SSH_OK\")",
+      "Bash(find 'C:\\\\Users\\\\Einelo\\\\AppData\\\\Roaming\\\\Sublime Text\\\\Packages\\\\SFTP\\\\sftp' -name *.py)",
+      "Bash(find 'C:\\\\Users\\\\Einelo\\\\AppData\\\\Roaming\\\\Sublime Text\\\\Packages\\\\SFTP\\\\sftp' -type f -name *.py)",
+      "Bash(grep -l \"psftp\\\\|putty\\\\|ppk\" \"C:\\\\Users\\\\Einelo\\\\AppData\\\\Roaming\\\\Sublime Text\\\\Packages\\\\SFTP\\\\messages\"/*.txt)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''sftp_client.py'', doraise=True\\); print\\(''OK''\\)\")",
+      "Bash(icacls \"D:\\\\Servidores\\\\CPanel\\\\DomHostSeo\\\\domhostseo_private_key_openssh\" /inheritance:r /grant:r \"Einelo:\\(R\\)\")",
+      "WebFetch(domain:packagecontrol.io)",
+      "WebFetch(domain:docs.sublimetext.io)"
+    ]
+  }
+}

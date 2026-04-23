@@ -1,0 +1,11 @@
+[
+    { "caption": "RemoteSync: Upload File", "command": "remote_sync_upload_file" },
+    { "caption": "RemoteSync: Download File", "command": "remote_sync_download_file" },
+    { "caption": "RemoteSync: Diff with Remote", "command": "remote_sync_diff_remote" },
+    { "caption": "RemoteSync: Browse Server", "command": "remote_sync_browse" },
+    { "caption": "RemoteSync: Show Panel", "command": "remote_sync_show_panel" },
+    { "caption": "RemoteSync: Clear Panel", "command": "remote_sync_clear_panel" },
+    { "caption": "RemoteSync: Create Config", "command": "remote_sync_create_config" },
+    { "caption": "RemoteSync: Cancel Operations", "command": "remote_sync_cancel" },
+    { "caption": "RemoteSync: Disconnect All", "command": "remote_sync_disconnect" }
+]
