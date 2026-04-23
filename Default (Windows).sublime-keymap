@@ -1,0 +1,14 @@
+[
+    {
+        "keys": ["ctrl+shift+u"],
+        "command": "remote_sync_upload_file"
+    },
+    {
+        "keys": ["ctrl+shift+d"],
+        "command": "remote_sync_download_file"
+    },
+    {
+        "keys": ["ctrl+shift+x"],
+        "command": "remote_sync_cancel"
+    }
+]

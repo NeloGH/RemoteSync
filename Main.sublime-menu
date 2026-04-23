@@ -1,0 +1,53 @@
+[
+    {
+        "id": "preferences",
+        "children": [
+            {
+                "caption": "Package Settings",
+                "mnemonic": "P",
+                "id": "package-settings",
+                "children": [
+                    {
+                        "caption": "RemoteSync",
+                        "children": [
+                            {
+                                "caption": "Settings",
+                                "command": "remote_sync_open_settings"
+                            },
+                            {
+                                "caption": "Key Bindings",
+                                "command": "remote_sync_open_keybindings"
+                            },
+                            { "caption": "-" },
+                            {
+                                "caption": "Create Config",
+                                "command": "remote_sync_create_config"
+                            },
+                            {
+                                "caption": "Browse Server",
+                                "command": "remote_sync_browse"
+                            },
+                            {
+                                "caption": "Show Panel",
+                                "command": "remote_sync_show_panel"
+                            },
+                            {
+                                "caption": "Clear Panel",
+                                "command": "remote_sync_clear_panel"
+                            },
+                            { "caption": "-" },
+                            {
+                                "caption": "Cancel Operations",
+                                "command": "remote_sync_cancel"
+                            },
+                            {
+                                "caption": "Disconnect All",
+                                "command": "remote_sync_disconnect"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+]

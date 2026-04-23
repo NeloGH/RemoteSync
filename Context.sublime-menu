@@ -1,0 +1,21 @@
+[
+    { "caption": "-" },
+    {
+        "caption": "RemoteSync",
+        "children": [
+            {
+                "caption": "Upload File",
+                "command": "remote_sync_upload_file"
+            },
+            {
+                "caption": "Download File",
+                "command": "remote_sync_download_file"
+            },
+            { "caption": "-" },
+            {
+                "caption": "Diff with Remote",
+                "command": "remote_sync_diff_remote"
+            }
+        ]
+    }
+]

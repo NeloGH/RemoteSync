@@ -1,0 +1,91 @@
+%YAML 1.2
+---
+name: RemoteSync Output
+scope: output.remotesync
+hidden: true
+
+contexts:
+  main:
+    # Timestamp lines with protocol tag: [HH:MM:SS] >>> [SFTP] message
+    - match: '^\[(\d{2}:\d{2}:\d{2})\] (>>>) (\[(?:SFTP|FTP|FTPS|SCP|ClaudeSync)\]) (.*)$'
+      captures:
+        1: comment.timestamp.remotesync
+        2: keyword.operator.remotesync
+        3: keyword.other.protocol.remotesync
+        4: string.message.remotesync
+
+    # Timestamp lines without protocol: [HH:MM:SS] >>> message
+    - match: '^\[(\d{2}:\d{2}:\d{2})\] (>>>) (.*)$'
+      captures:
+        1: comment.timestamp.remotesync
+        2: keyword.operator.remotesync
+        3: string.message.remotesync
+
+    # Error lines with protocol tag: [HH:MM:SS] ERR [SFTP] message
+    - match: '^\[(\d{2}:\d{2}:\d{2})\] (ERR) (\[(?:SFTP|FTP|FTPS|SCP|ClaudeSync)\]) (.*)$'
+      captures:
+        1: comment.timestamp.remotesync
+        2: invalid.illegal.remotesync
+        3: keyword.other.protocol.remotesync
+        4: invalid.deprecated.remotesync
+
+    # Error lines: [HH:MM:SS] ERR message
+    - match: '^\[(\d{2}:\d{2}:\d{2})\] (ERR) (.*)$'
+      captures:
+        1: comment.timestamp.remotesync
+        2: invalid.illegal.remotesync
+        3: invalid.deprecated.remotesync
+
+    # Progress lines with dots + success (with optional time): Action ......... success (0.3s)
+    - match: '^((?:Connecting|Uploading|Downloading|Deleting|Creating|Renaming|Setting|Validating|Scanning).+?)( \.{3,} )(success(?: \(\d+\.\d+s\))?)$'
+      captures:
+        1: entity.name.function.remotesync
+        2: comment.dots.remotesync
+        3: markup.inserted.remotesync
+
+    # Progress lines with dots + failure
+    - match: '^((?:Connecting|Uploading|Downloading|Deleting|Creating|Renaming|Setting|Validating|Scanning).+?)( \.{3,} )(failure.*)$'
+      captures:
+        1: entity.name.function.remotesync
+        2: comment.dots.remotesync
+        3: invalid.illegal.remotesync
+
+    # Progress line with spinner + elapsed time (in-progress): Action ......... ⠹ 15s
+    - match: '^((?:Connecting|Uploading|Downloading|Deleting|Creating|Renaming|Setting|Validating|Scanning).+?)( \.{3,})( [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] \d+s)$'
+      captures:
+        1: entity.name.function.remotesync
+        2: comment.dots.remotesync
+        3: markup.changed.remotesync
+
+    # Progress line (waiting, no result yet): Action .........
+    - match: '^((?:Connecting|Uploading|Downloading|Deleting|Creating|Renaming|Setting|Validating|Scanning).+?)( \.{3,} ?)$'
+      captures:
+        1: entity.name.function.remotesync
+        2: comment.dots.remotesync
+
+    # Spinner characters inline (during animation)
+    - match: '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] \d+s'
+      scope: markup.changed.remotesync
+
+    # Standalone success result (with optional time)
+    - match: '^(success(?: \(\d+\.\d+s\))?)$'
+      captures:
+        1: markup.inserted.remotesync
+
+    # Standalone failure result
+    - match: '^(failure.*)$'
+      captures:
+        1: invalid.illegal.remotesync
+
+    # Quoted paths in messages
+    - match: '"[^"]*"'
+      scope: string.quoted.double.remotesync
+
+    # Parenthesized info (file sizes, timing) in action lines
+    - match: '\(\d+[\.\d]* (?:B|KB|MB|GB|TB)\)'
+      scope: comment.size.remotesync
+
+    # Queue messages
+    - match: '^(Queue:.*)$'
+      captures:
+        1: comment.queue.remotesync
