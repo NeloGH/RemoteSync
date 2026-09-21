@@ -16,6 +16,8 @@ import subprocess
 import ftplib
 import threading
 import tempfile
+import datetime
+import re
 
 from .errors import (
     RemoteConnectionError, ConnectionTimeoutError, ConnectionLostError,
@@ -1027,9 +1029,54 @@ class FTPClient:
             entries.append({"name": name, "is_dir": is_dir, "size": size, "mtime": 0})
         return entries
 
+    _DOS_LIST_RE = re.compile(
+        r"^\s*(?P<date>\d{2}-\d{2}-(?:\d{2}|\d{4}))\s+"
+        r"(?P<time>\d{1,2}:\d{2}\s*(?:AM|PM))\s+"
+        r"(?P<type_or_size><DIR>|\d+)\s+"
+        r"(?P<name>.+)$",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _parse_dos_list_line(cls, line):
+        """Parse one DOS/IIS FTP LIST record, or return None."""
+        match = cls._DOS_LIST_RE.match(line)
+        if not match:
+            return None
+
+        name = match.group("name")
+        if name in (".", ".."):
+            return None
+
+        date_text = match.group("date")
+        time_text = re.sub(r"\s+", "", match.group("time")).upper()
+        year_format = "%Y" if len(date_text.rsplit("-", 1)[-1]) == 4 else "%y"
+        try:
+            modified = datetime.datetime.strptime(
+                f"{date_text} {time_text}",
+                f"%m-%d-{year_format} %I:%M%p",
+            )
+        except ValueError:
+            return None
+
+        type_or_size = match.group("type_or_size")
+        is_dir = type_or_size.upper() == "<DIR>"
+        size = 0 if is_dir else int(type_or_size)
+        return {
+            "name": name,
+            "is_dir": is_dir,
+            "size": size,
+            "mtime": modified.timestamp(),
+        }
+
     def _parse_list(self, items):
         entries = []
         for line in items:
+            dos_entry = self._parse_dos_list_line(line)
+            if dos_entry is not None:
+                entries.append(dos_entry)
+                continue
+
             parts = line.split()
             if len(parts) < 9:
                 continue
