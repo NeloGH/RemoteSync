@@ -6,5 +6,10 @@
     "auto_hide_panel": 4,
 
     // Log successful uploads/downloads to the output panel
-    "log_operations": true
+    "log_operations": true,
+
+    // Folder containing the OpenSSH binaries (ssh, sftp, scp, ssh-keygen).
+    // Empty = auto-detect (System32\OpenSSH on Windows, then PATH).
+    // Useful when the system OpenSSH is too old, e.g. "E:/tools/OpenSSH-Win64"
+    "ssh_bin_dir": ""
 }

@@ -108,10 +108,12 @@ Open via **Preferences → Package Settings → RemoteSync → Settings**:
 {
     "show_panel_on_error": true,
     "auto_hide_panel": 4,
-    "log_operations": true
+    "log_operations": true,
+    "ssh_bin_dir": ""
 }
 ```
 
+- `ssh_bin_dir`: folder containing the OpenSSH binaries (`ssh`, `sftp`, `scp`, `ssh-keygen`). Leave empty to auto-detect. When set, binaries are looked up only in this folder, with no fallback. Useful when the system OpenSSH is outdated (e.g. Windows ships 8.1, which can hang when launched from Sublime) or when running from a portable drive: `"ssh_bin_dir": "E:/tools/OpenSSH-Win64"`
 - `auto_hide_panel` — seconds before the output panel closes after success (`0` = never hide)
 
 ## Commands
