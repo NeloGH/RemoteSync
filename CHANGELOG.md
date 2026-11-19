@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.0
+
+- **FTP on Windows/IIS servers:** directory listings in DOS/IIS format (`07-24-21  12:13PM  <DIR>  assets`) are now parsed, so Browse Server no longer shows an empty folder on those servers. Thanks to @IvanRotrekl (#5).
+- **New setting `ssh_bin_dir`:** choose the folder with the OpenSSH binaries (`ssh`, `sftp`, `scp`, `ssh-keygen`) instead of auto-detecting them. Useful when the system OpenSSH is outdated, e.g. Windows' built-in 8.1. Thanks to @risingphoenix (#6).
+
 ## 1.7.0
 
 - **SFTP-only accounts:** accounts jailed to SFTP (`ForceCommand internal-sftp`, chroot) now work. RemoteSync detects that no shell is available and runs every operation over SFTP: browse, upload (creating folders when needed), download, rename, delete, recursive folder delete, new folder, new file and chmod. Folder downloads scan by listing instead of `find`/`rsync`. You can force this mode with `"sftp_only": true`.

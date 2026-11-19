@@ -3,3 +3,4 @@
 .gitignore export-ignore
 README.md export-ignore
 Cambios.txt export-ignore
+tests/ export-ignore
