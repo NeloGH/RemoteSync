@@ -154,8 +154,35 @@ def _clean_sftp_error(stderr_text):
     return "\n".join(error_lines) if error_lines else stderr_text.strip()
 
 
-def _find_ssh_binary(name):
-    """Find an SSH binary (ssh, sftp, scp) on the system."""
+def _get_ssh_bin_dir():
+    """Return the user-configured OpenSSH folder, or "" if not set.
+
+    Read from the global RemoteSync.sublime-settings. The import is lazy so
+    this module keeps working outside Sublime Text (e.g. in tests).
+    """
+    try:
+        import sublime
+        value = sublime.load_settings("RemoteSync.sublime-settings").get("ssh_bin_dir", "")
+    except Exception:
+        return ""
+    if not value:
+        return ""
+    return os.path.expandvars(os.path.expanduser(str(value)))
+
+
+def _find_ssh_binary(name, bin_dir=None):
+    """Find an SSH binary (ssh, sftp, scp, ssh-keygen) on the system.
+
+    If bin_dir is given, look only there: a user who set a custom folder
+    does not want a silent fallback to a different OpenSSH version.
+    """
+    if bin_dir:
+        for ext in (".exe", ""):
+            full = os.path.join(bin_dir, name + ext)
+            if os.path.isfile(full):
+                return full
+        return None
+
     win_path = os.path.join(
         os.environ.get("SYSTEMROOT", r"C:\Windows"),
         "System32", "OpenSSH", f"{name}.exe"
@@ -417,9 +444,10 @@ class SFTPClient:
         self.command_timeout = command_timeout
         self.file_permissions = file_permissions
         self.dir_permissions = dir_permissions
-        self._sftp_bin = _find_ssh_binary("sftp")
-        self._scp_bin = _find_ssh_binary("scp")
-        self._ssh_bin = _find_ssh_binary("ssh")
+        self._ssh_bin_dir = _get_ssh_bin_dir()
+        self._sftp_bin = _find_ssh_binary("sftp", self._ssh_bin_dir)
+        self._scp_bin = _find_ssh_binary("scp", self._ssh_bin_dir)
+        self._ssh_bin = _find_ssh_binary("ssh", self._ssh_bin_dir)
         self._psftp_bin = _find_psftp()   # PuTTY sftp — reads .ppk natively
         self._use_psftp = False            # activated when key is .ppk and psftp available
         self._connected = False
@@ -432,6 +460,11 @@ class SFTPClient:
         self._login_verified = known
 
         if not self._sftp_bin:
+            if self._ssh_bin_dir:
+                raise RemoteConnectionError(
+                    f"No sftp binary found in ssh_bin_dir: {self._ssh_bin_dir}. "
+                    "Check the path in RemoteSync settings."
+                )
             raise RemoteConnectionError(
                 "No sftp binary found. Install OpenSSH or Git for Windows."
             )
@@ -744,7 +777,7 @@ class SFTPClient:
         Returns the temp path on success, or None if ssh-keygen fails.
         """
         import tempfile, shutil
-        ssh_keygen = _find_ssh_binary("ssh-keygen")
+        ssh_keygen = _find_ssh_binary("ssh-keygen", self._ssh_bin_dir)
         if not ssh_keygen:
             return None
         fd, temp_path = tempfile.mkstemp(prefix="rs_key_")
