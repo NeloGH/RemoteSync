@@ -36,6 +36,9 @@ from .core.errors import (
     ConfigError, is_critical, is_user_actionable, user_friendly_message,
 )
 from .core import panel
+# ST only registers command classes found in top-level plugin modules —
+# import it here so the panel's in-place spinner replace command exists.
+from .core.panel import RemoteSyncPanelReplaceCommand  # noqa: F401
 from .core import pool
 from .core.queue import OperationQueue
 from .core.scanner import fast_scan
@@ -1470,16 +1473,6 @@ class RemoteSyncOpenSettingsCommand(sublime_plugin.WindowCommand):
             "base_file": "${packages}/RemoteSync/RemoteSync.sublime-settings",
             "default": "// RemoteSync User Settings\n// Place your overrides here\n{\n\t$0\n}\n"
         })
-
-
-class RemoteSyncOpenKeybindingsCommand(sublime_plugin.WindowCommand):
-    """Open keybindings for the current platform."""
-    def run(self):
-        pkg_dir = os.path.dirname(__file__)
-        platform_map = {"windows": "Windows", "osx": "OSX", "linux": "Linux"}
-        platform_name = platform_map.get(sublime.platform(), "Windows")
-        keymap_file = os.path.join(pkg_dir, f"Default ({platform_name}).sublime-keymap")
-        self.window.open_file(keymap_file)
 
 
 class RemoteSyncDiffRemotePathsCommand(sublime_plugin.WindowCommand):
