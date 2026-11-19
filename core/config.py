@@ -385,6 +385,10 @@ DEFAULT_CONFIG_TEMPLATE = """\
 
     //"ssh_key_file": "~/.ssh/id_rsa",
     //"ssh_key_passphrase": "",  // passphrase for encrypted SSH private keys
+
+    // Account allows SFTP but no shell (ForceCommand internal-sftp / jail)?
+    // Detected automatically; set true to skip the shell probe entirely.
+    //"sftp_only": true,
     "connect_timeout": 30,
     //"keepalive": 120,
 

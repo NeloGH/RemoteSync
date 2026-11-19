@@ -11,15 +11,18 @@ v2 changes:
   - Improved askpass security (atexit + icacls on Windows)
 """
 
+import io
 import os
+import posixpath
 import subprocess
 import ftplib
 import threading
 import tempfile
 
 from .errors import (
-    RemoteConnectionError, ConnectionTimeoutError, ConnectionLostError,
-    AuthenticationError, classify_ssh_error,
+    RemoteSyncError, RemoteConnectionError, ConnectionTimeoutError,
+    ConnectionLostError, AuthenticationError, HostKeyError, SFTPOnlyError,
+    classify_ssh_error, is_sftp_only_message,
 )
 
 
@@ -130,8 +133,11 @@ def _clean_sftp_error(stderr_text):
     Removes noise like connection banners ('Connected to ...') and
     keeps only the actual error lines so users see useful messages.
     """
-    if not stderr_text:
-        return "Unknown error"
+    if not stderr_text or not stderr_text.strip():
+        return ""
+    if is_sftp_only_message(stderr_text):
+        return ("This account only allows SFTP (no shell access): "
+                + stderr_text.strip())
     lines = stderr_text.strip().splitlines()
     # Filter out noise: connection banners, empty lines, warnings
     noise_prefixes = ("connected to ", "warning:", "banner ")
@@ -383,6 +389,12 @@ def _convert_ppk_to_openssh(ppk_path, passphrase=None):
         return None
 
 
+# Accounts already found to be SFTP-only, keyed by (host, port, user), so
+# every new connection (parallel workers, scans) skips the failing shell probe.
+_SFTP_ONLY_ACCOUNTS = set()
+_SFTP_ONLY_LOCK = threading.Lock()
+
+
 class SFTPClient:
     """SFTP/SCP client using system OpenSSH commands."""
 
@@ -390,7 +402,7 @@ class SFTPClient:
                  ssh_key_passphrase=None,
                  connect_timeout=30, file_permissions=None,
                  dir_permissions=None, upload_timeout=120,
-                 download_timeout=120, command_timeout=30):
+                 download_timeout=120, command_timeout=30, sftp_only=False):
         self.host = host
         self.port = int(port)
         self.user = user
@@ -410,6 +422,12 @@ class SFTPClient:
         self._use_psftp = False            # activated when key is .ppk and psftp available
         self._connected = False
         self._lock = threading.Lock()
+        with _SFTP_ONLY_LOCK:
+            known = (self.host, self.port, self.user) in _SFTP_ONLY_ACCOUNTS
+        # True when the account has no shell (forced or detected on connect)
+        self._sftp_only = bool(sftp_only) or known
+        # Login already proven for this account in this session — skip probe
+        self._login_verified = known
 
         if not self._sftp_bin:
             raise RemoteConnectionError(
@@ -481,17 +499,19 @@ class SFTPClient:
             opts.extend(["-P", str(self.port)])
         return opts
 
-    def _run_psftp_batch(self, commands, timeout=None):
+    def _run_psftp_batch(self, commands, timeout=None, check_errors=True):
         """Run SFTP commands via psftp (PuTTY). Used when key is .ppk."""
         if timeout is None:
             timeout = self.command_timeout
         cmd = [self._psftp_bin] + self._psftp_opts() + [
             f"{self.user}@{self.host}"
         ]
+        # psftp has no '-' (ignore-error) prefix; strip it, rely on check_errors
+        commands = [c[1:] if c.startswith("-") else c for c in commands]
         input_data = "\n".join(commands) + "\nbye\n"
         result = self._run_cmd(cmd, timeout, input_data=input_data)
         stderr = (result.stderr or "").lower()
-        if any(err in stderr for err in [
+        if check_errors and any(err in stderr for err in [
             "no such file", "not found", "permission denied",
             "failure", "couldn't stat", "cannot access",
         ]):
@@ -506,10 +526,10 @@ class SFTPClient:
         cmd = [self._scp_bin] + self._ssh_opts() + ["-P", str(self.port)] + args
         return self._run_cmd(cmd, timeout)
 
-    def _run_sftp_batch(self, commands, timeout=None):
+    def _run_sftp_batch(self, commands, timeout=None, check_errors=True):
         """Run sftp commands — uses psftp if key is .ppk, otherwise OpenSSH sftp."""
         if self._use_psftp:
-            return self._run_psftp_batch(commands, timeout)
+            return self._run_psftp_batch(commands, timeout, check_errors)
 
         if timeout is None:
             timeout = self.command_timeout
@@ -524,7 +544,7 @@ class SFTPClient:
         # Without -b flag, sftp may return 0 even on command errors.
         # Check stderr for transfer failures.
         stderr = (result.stderr or "").lower()
-        if any(err in stderr for err in [
+        if check_errors and any(err in stderr for err in [
             "no such file", "not found", "permission denied",
             "failure", "couldn't stat", "cannot access",
         ]):
@@ -535,6 +555,10 @@ class SFTPClient:
 
     def _run_ssh(self, remote_cmd, timeout=None):
         """Run a command on the remote server via ssh."""
+        if self._sftp_only:
+            raise SFTPOnlyError(
+                "This account only allows SFTP (no shell access); "
+                "this action needs a remote shell command.")
         if timeout is None:
             timeout = self.command_timeout
         cmd = [self._ssh_bin] + self._ssh_opts() + [
@@ -542,14 +566,41 @@ class SFTPClient:
             f"{self.user}@{self.host}",
             remote_cmd
         ]
-        return self._run_cmd(cmd, timeout)
+        try:
+            return self._run_cmd(cmd, timeout)
+        except SFTPOnlyError:
+            self._mark_sftp_only()
+            raise
+
+    def has_shell(self):
+        """True if remote shell commands can be used (ssh present, not jailed)."""
+        return bool(self._ssh_bin) and not self._sftp_only
+
+    def _mark_sftp_only(self):
+        """Switch this account to SFTP-only mode and remember it per host."""
+        self._sftp_only = True
+        with _SFTP_ONLY_LOCK:
+            _SFTP_ONLY_ACCOUNTS.add((self.host, self.port, self.user))
+
+    def _shell_or_sftp(self, shell_fn, sftp_fn):
+        """Run shell_fn when a shell is usable, else (or if rejected) sftp_fn."""
+        if self.has_shell():
+            try:
+                return shell_fn()
+            except SFTPOnlyError:
+                pass
+        return sftp_fn()
+
+    def keepalive(self):
+        """Cheap liveness ping; SFTP-only sessions are per-command, so no-op."""
+        if self.has_shell():
+            self._run_ssh("echo keepalive", timeout=10)
 
     def _run_cmd(self, cmd, timeout=60, input_data=None):
         """Execute a subprocess command with granular error handling."""
         askpass_file = None
         try:
             env = os.environ.copy()
-            use_askpass = False
             if self.ssh_key_passphrase:
                 # Passphrase-protected key: provide passphrase via SSH_ASKPASS
                 askpass_file = self._create_askpass_script(self.ssh_key_passphrase)
@@ -557,7 +608,6 @@ class SFTPClient:
                     env["SSH_ASKPASS"] = askpass_file
                     env["SSH_ASKPASS_REQUIRE"] = "force"
                     env["DISPLAY"] = ":0"
-                    use_askpass = True
             elif self.password and not self.ssh_key_file:
                 # Password auth: provide password via SSH_ASKPASS
                 askpass_file = self._create_askpass_script(self.password)
@@ -565,7 +615,6 @@ class SFTPClient:
                     env["SSH_ASKPASS"] = askpass_file
                     env["SSH_ASKPASS_REQUIRE"] = "force"
                     env["DISPLAY"] = ":0"
-                    use_askpass = True
 
             run_kwargs = dict(
                 capture_output=True, text=True, timeout=timeout, env=env,
@@ -574,7 +623,9 @@ class SFTPClient:
 
             if input_data is not None:
                 run_kwargs["input"] = input_data
-            elif use_askpass:
+            else:
+                # Never inherit stdin: a jailed account (ForceCommand
+                # internal-sftp) would otherwise wait on it forever.
                 run_kwargs["stdin"] = subprocess.DEVNULL
 
             result = subprocess.run(cmd, **run_kwargs)
@@ -593,7 +644,11 @@ class SFTPClient:
                             return result
                         stderr = result.stderr or ""
 
-                error_text = _clean_sftp_error(stderr) or result.stdout.strip() or "Unknown error"
+                # Some servers print the real reason on stdout (e.g. jailed
+                # SFTP accounts), so fall back to it before "Unknown error".
+                error_text = (_clean_sftp_error(stderr)
+                              or _clean_sftp_error(result.stdout)
+                              or "Unknown error")
                 raise classify_ssh_error(error_text)
 
             return result
@@ -655,15 +710,29 @@ class SFTPClient:
             return None
 
     def connect(self):
-        """Test the connection."""
+        """Verify login; detect accounts that allow SFTP but no shell."""
         with self._lock:
             if self._connected:
                 return
-            if self._ssh_bin:
-                self._run_ssh("echo ok", timeout=self.connect_timeout)
-                self._connected = True
-            else:
-                self._connected = True
+            if self.has_shell():
+                try:
+                    out = self._run_ssh("echo ok", timeout=self.connect_timeout)
+                    # Any line == "ok" (shells may print extra rc-file output)
+                    if "ok" in (ln.strip() for ln in out.stdout.splitlines()):
+                        self._connected = True
+                        return
+                except (AuthenticationError, HostKeyError,
+                        ConnectionTimeoutError, ConnectionLostError):
+                    raise
+                except RemoteConnectionError:
+                    pass  # shell refused (jail, nologin) — probe plain SFTP
+            # SFTP probe: proves the login works even without a shell. Skipped
+            # for accounts already verified this session (parallel workers).
+            if not self._login_verified:
+                self._run_sftp_batch(["pwd"], timeout=self.connect_timeout)
+            if self._ssh_bin and not self._sftp_only:
+                self._mark_sftp_only()
+            self._connected = True
 
     def _strip_key_passphrase(self, key_path, passphrase):
         """Create a temp unencrypted copy of an encrypted OpenSSH key.
@@ -717,9 +786,13 @@ class SFTPClient:
     def upload(self, local_path, remote_path):
         """Upload a file using sftp batch mode."""
         remote_dir = os.path.dirname(remote_path).replace("\\", "/")
+        local_sftp = local_path.replace("\\", "/")
+        batch_cmds = [f'put "{local_sftp}" "{remote_path}"']
+        if self.file_permissions:
+            batch_cmds.append(f'chmod {self.file_permissions} "{remote_path}"')
 
         # Create remote directory tree via SSH (mkdir -p needs a shell)
-        if self._ssh_bin:
+        if self.has_shell():
             mkdir_cmd = f"mkdir -p {_shell_quote(remote_dir)}"
             if self.dir_permissions:
                 mkdir_cmd += f" && chmod {self.dir_permissions} {_shell_quote(remote_dir)}"
@@ -728,14 +801,19 @@ class SFTPClient:
             except Exception:
                 pass
 
-        # Transfer via sftp batch (avoids SCP quoting issues on Windows)
-        local_sftp = local_path.replace("\\", "/")
-        batch_cmds = [f'put "{local_sftp}" "{remote_path}"']
-
-        if self.file_permissions:
-            batch_cmds.append(f'chmod {self.file_permissions} "{remote_path}"')
-
-        self._run_sftp_batch(batch_cmds, timeout=self.upload_timeout)
+        if self.has_shell():
+            # Transfer via sftp batch (avoids SCP quoting issues on Windows)
+            self._run_sftp_batch(batch_cmds, timeout=self.upload_timeout)
+        else:
+            # No shell: try the put first (the folder usually exists) and
+            # only build the directory tree when the server says it's missing.
+            try:
+                self._run_sftp_batch(batch_cmds, timeout=self.upload_timeout)
+            except RemoteSyncError as e:
+                if "no such file" not in str(e).lower():
+                    raise
+                self._sftp_mkdir_p(remote_dir, self.dir_permissions)
+                self._run_sftp_batch(batch_cmds, timeout=self.upload_timeout)
         self._connected = True
 
     def download(self, remote_path, local_path):
@@ -751,36 +829,48 @@ class SFTPClient:
         self._connected = True
 
     def listdir(self, remote_path):
-        """List remote directory using ssh ls or sftp."""
-        entries = []
-        if self._ssh_bin:
+        """List a remote directory via ssh ls, or via sftp when there's no shell."""
+        def _shell():
             result = self._run_ssh(
                 f"LC_ALL=C /bin/ls -la {_shell_quote(remote_path)}"
             )
-            entries = self._parse_ls_output(result.stdout, remote_path)
-        elif self._sftp_bin:
-            result = self._run_sftp_batch([f"ls -la {remote_path}"])
-            entries = self._parse_ls_output(result.stdout, remote_path)
+            return self._parse_ls_output(result.stdout, remote_path)
 
+        def _sftp():
+            result = self._run_sftp_batch([self._sftp_ls_cmd(remote_path)])
+            return self._parse_ls_output(result.stdout, remote_path)
+
+        entries = self._shell_or_sftp(_shell, _sftp)
         entries.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
         self._connected = True
         return entries
 
+    def _sftp_ls_cmd(self, remote_path):
+        """Long-listing command for the active sftp client (psftp has no flags)."""
+        if self._use_psftp:
+            return f'ls "{remote_path}"'
+        return f'ls -la "{remote_path}"'
+
     def _parse_ls_output(self, output, remote_path):
-        """Parse ls -la output into entry dicts."""
+        """Parse ls -la / sftp ls -la / psftp ls output into entry dicts."""
         entries = []
         for line in output.strip().splitlines():
             if line.startswith("total ") or not line.strip():
                 continue
-            if line.startswith("sftp>"):
-                line = line[5:].strip()
+            if line.startswith("sftp>") or line.startswith("psftp>"):
+                line = line.split(">", 1)[1].strip()
                 if not line or line.startswith("total "):
                     continue
             parts = line.split()
-            if len(parts) < 9:
-                continue
+            if len(parts) < 9 or len(parts[0]) < 10:
+                continue  # banners like "Listing directory /x" or the echoed command
             name = " ".join(parts[8:])
-            if name in (".", ".."):
+            if line[0] == "l" and " -> " in name:
+                name = name.split(" -> ", 1)[0]
+            if "/" in name:
+                # sftp may print entries with the listed path as prefix
+                name = name.rstrip("/").rsplit("/", 1)[-1]
+            if name in (".", "..", ""):
                 continue
             is_dir = line[0] == "d"
             try:
@@ -793,47 +883,149 @@ class SFTPClient:
             })
         return entries
 
-    def stat(self, remote_path):
-        if self._ssh_bin:
-            result = self._run_ssh(f"stat -c '%s %Y %F' {_shell_quote(remote_path)}")
-            return result.stdout.strip()
+    def _find_entry(self, remote_path):
+        """Return the listing entry for remote_path from its parent, or None."""
+        parent, name = posixpath.split(remote_path.rstrip("/"))
+        for entry in self.listdir(parent or "/"):
+            if entry["name"] == name:
+                return entry
         return None
 
+    def stat(self, remote_path):
+        """Return 'size mtime type' for a remote path (mtime 0 without a shell)."""
+        def _shell():
+            result = self._run_ssh(f"stat -c '%s %Y %F' {_shell_quote(remote_path)}")
+            return result.stdout.strip()
+
+        def _sftp():
+            entry = self._find_entry(remote_path)
+            if entry is None:
+                return None
+            kind = "directory" if entry["is_dir"] else "regular file"
+            return f"{entry['size']} 0 {kind}"
+
+        return self._shell_or_sftp(_shell, _sftp)
+
     def remove(self, remote_path):
-        if self._ssh_bin:
-            self._run_ssh(f"rm {_shell_quote(remote_path)}")
-        elif self._sftp_bin:
-            self._run_sftp_batch([f'rm "{remote_path}"'])
+        """Delete a remote file."""
+        self._shell_or_sftp(
+            lambda: self._run_ssh(f"rm {_shell_quote(remote_path)}"),
+            lambda: self._run_sftp_batch([f'rm "{remote_path}"']),
+        )
 
     def remove_dir(self, remote_path):
         """Recursively remove a remote directory."""
-        if self._ssh_bin:
-            self._run_ssh(f"rm -rf {_shell_quote(remote_path)}")
-        elif self._sftp_bin:
-            self._run_sftp_batch([f'rm "{remote_path}"'])
+        if not remote_path.strip().rstrip("/"):
+            raise RemoteConnectionError("Refusing to delete the remote root '/'")
+        self._shell_or_sftp(
+            lambda: self._run_ssh(f"rm -rf {_shell_quote(remote_path)}"),
+            lambda: self._sftp_rmtree(remote_path),
+        )
+
+    def _sftp_rmtree(self, remote_path):
+        """Delete a tree over SFTP: list it, remove files, then dirs bottom-up."""
+        files, dirs = [], []
+
+        def _walk(rdir):
+            dirs.append(rdir)
+            for entry in self.listdir(rdir):
+                child = rdir.rstrip("/") + "/" + entry["name"]
+                if entry["is_dir"]:
+                    _walk(child)
+                else:
+                    files.append(child)
+
+        _walk(remote_path.rstrip("/"))
+        cmds = [f'rm "{f}"' for f in files] + [f'rmdir "{d}"' for d in reversed(dirs)]
+        self._run_sftp_batch(cmds, timeout=self.command_timeout + len(cmds))
+
+    def _sftp_mkdir_p(self, remote_dir, perms=None):
+        """Create remote_dir and its parents over SFTP ('-' ignores 'exists')."""
+        remote_dir = remote_dir.replace("\\", "/").rstrip("/")
+        if not remote_dir:
+            return
+        prefix = "/" if remote_dir.startswith("/") else ""
+        levels, current = [], ""
+        for part in remote_dir.split("/"):
+            if not part:
+                continue
+            current = (current + "/" + part) if current else (prefix + part)
+            levels.append(current)
+        cmds = [f'-mkdir "{level}"' for level in levels]
+        if perms:
+            cmds.append(f'-chmod {perms} "{remote_dir}"')
+        self._run_sftp_batch(cmds, check_errors=False)
+
+    def mkdir(self, remote_path):
+        """Create a remote directory and any missing parents (mkdir -p)."""
+        self._shell_or_sftp(
+            lambda: self._run_ssh(f"mkdir -p {_shell_quote(remote_path)}"),
+            lambda: self._sftp_mkdir_p(remote_path),
+        )
+
+    def touch(self, remote_path):
+        """Create an empty remote file; never truncates an existing one."""
+        def _sftp():
+            if self._find_entry(remote_path) is not None:
+                return
+            fd, tmp = tempfile.mkstemp(prefix="rs_touch_")
+            os.close(fd)
+            try:
+                tmp_sftp = tmp.replace("\\", "/")
+                self._run_sftp_batch([f'put "{tmp_sftp}" "{remote_path}"'],
+                                     timeout=self.upload_timeout)
+            finally:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
+        self._shell_or_sftp(
+            lambda: self._run_ssh(f"touch {_shell_quote(remote_path)}"),
+            _sftp,
+        )
+
+    def chmod(self, remote_path, perms):
+        """Change permissions of a remote path (octal string like '644')."""
+        self._shell_or_sftp(
+            lambda: self._run_ssh(f"chmod {perms} {_shell_quote(remote_path)}"),
+            lambda: self._run_sftp_batch([f'chmod {perms} "{remote_path}"']),
+        )
 
     def exec_command(self, command, timeout=None):
-        """Execute a remote command via SSH. Returns stdout.
-
-        Args:
-            command: Shell command to run on the remote server.
-            timeout: Override timeout in seconds (defaults to command_timeout).
-        """
-        if self._ssh_bin:
-            result = self._run_ssh(command, timeout=timeout)
-            return result.stdout.strip()
-        raise RemoteConnectionError("exec_command requires SSH")
+        """Run a remote shell command via SSH and return its stdout."""
+        if not self._ssh_bin:
+            raise RemoteConnectionError("exec_command requires SSH")
+        return self._run_ssh(command, timeout=timeout).stdout.strip()
 
     def rename(self, old_path, new_path):
-        if self._ssh_bin:
-            self._run_ssh(f"mv {_shell_quote(old_path)} {_shell_quote(new_path)}")
-        elif self._sftp_bin:
-            self._run_sftp_batch([f'rename "{old_path}" "{new_path}"'])
+        """Rename or move a remote path."""
+        self._shell_or_sftp(
+            lambda: self._run_ssh(f"mv {_shell_quote(old_path)} {_shell_quote(new_path)}"),
+            lambda: self._run_sftp_batch([f'rename "{old_path}" "{new_path}"']),
+        )
 
 
 class SCPClient(SFTPClient):
     """SCP client — same implementation as SFTP (both use system OpenSSH)."""
     pass
+
+
+class _ReusedSessionFTP_TLS(ftplib.FTP_TLS):
+    """FTP_TLS that reuses the control channel's TLS session on data channels."""
+
+    def ntransfercmd(self, cmd, rest=None):
+        """Open the data connection, resuming the control TLS session.
+
+        Servers with vsftpd require_ssl_reuse=YES (and FileZilla Server)
+        reject a fresh TLS handshake on the data channel with
+        "522 SSL connection failed: session reuse required".
+        """
+        conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
+        if self._prot_p:
+            conn = self.context.wrap_socket(
+                conn, server_hostname=self.host, session=self.sock.session)
+        return conn, size
 
 
 class FTPClient:
@@ -864,7 +1056,7 @@ class FTPClient:
                 return
             try:
                 if self.use_tls:
-                    self._ftp = ftplib.FTP_TLS()
+                    self._ftp = _ReusedSessionFTP_TLS()
                 else:
                     self._ftp = ftplib.FTP()
                 self._ftp.connect(self.host, self.port, timeout=self.connect_timeout)
@@ -1005,6 +1197,31 @@ class FTPClient:
     def exec_command(self, command):
         raise RemoteConnectionError("exec_command is not supported over FTP")
 
+    def has_shell(self):
+        """FTP never offers remote shell commands."""
+        return False
+
+    def mkdir(self, remote_path):
+        """Create a remote directory and any missing parents."""
+        with self._lock:
+            self._ensure_connected()
+            self._mkdir_p(remote_path)
+
+    def touch(self, remote_path):
+        """Create an empty remote file; never truncates an existing one."""
+        parent, name = posixpath.split(remote_path.rstrip("/"))
+        if any(e["name"] == name for e in self.listdir(parent or "/")):
+            return
+        with self._lock:
+            self._ensure_connected()
+            self._ftp.storbinary(f"STOR {remote_path}", io.BytesIO(b""))
+
+    def chmod(self, remote_path, perms):
+        """Change permissions via SITE CHMOD (server must support it)."""
+        with self._lock:
+            self._ensure_connected()
+            self._ftp.sendcmd(f"SITE CHMOD {perms} {remote_path}")
+
     def _ensure_connected(self):
         if not self.is_connected():
             self.disconnect()
@@ -1123,6 +1340,7 @@ def create_client(config):
             password=password if password else None,
             ssh_key_file=ssh_key if ssh_key else None,
             ssh_key_passphrase=ssh_key_passphrase if ssh_key_passphrase else None,
+            sftp_only=bool(config.get("sftp_only", False)),
             connect_timeout=timeout,
             file_permissions=file_perms, dir_permissions=dir_perms,
             upload_timeout=get_timeout(config, "upload"),

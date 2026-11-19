@@ -1,8 +1,8 @@
 """RemoteSync — Fast remote directory scanning with cascading methods.
 
 Tries the fastest scan method first and falls back to slower ones:
-  0. find   — single SSH command, fastest (SFTP/SCP only)
-  1. rsync  — single SSH command (SFTP/SCP only)
+  0. find   — single SSH command, fastest (SFTP/SCP with shell access only)
+  1. rsync  — single SSH command (SFTP/SCP with shell access only)
   2. parallel — N connections doing listdir in parallel (all protocols)
   3. sequential — recursive listdir, one dir at a time (always works)
 
@@ -31,15 +31,19 @@ _scan_cache_lock = threading.Lock()
 _METHOD_NAMES = ["find", "rsync --list-only", "parallel scan", "sequential scan"]
 
 
-def _get_start_method(host, is_ftp):
+def _get_start_method(host, is_ftp, has_shell=True):
     """Get the method index to start from for this host."""
     with _scan_cache_lock:
         cached = _scan_method_cache.get(host)
     if cached is not None:
-        return cached
+        # A cached shell method is useless once the account has no shell
+        return cached if has_shell else max(cached, 2)
     # FTP can't run shell commands and most shared hosting limits
     # concurrent connections — go straight to sequential (index 3)
-    return 3 if is_ftp else 0
+    if is_ftp:
+        return 3
+    # SFTP-only accounts can't run find/rsync — start at the listdir scans
+    return 0 if has_shell else 2
 
 
 def _remember_method(host, method_index):
@@ -332,7 +336,7 @@ def fast_scan(client, config, remote_dir, project_root, window=None,
 
     Tries methods in order of speed: find → rsync → parallel → sequential.
     Remembers which method worked per host for future scans.
-    For FTP/FTPS, skips SSH-only methods (find, rsync).
+    Skips shell methods (find, rsync) for FTP/FTPS and SFTP-only accounts.
 
     Args:
         client: Connected SFTPClient or FTPClient.
@@ -349,12 +353,13 @@ def fast_scan(client, config, remote_dir, project_root, window=None,
     host = config.get("host", "unknown")
     conn_type = config.get("type", "sftp").lower()
     is_ftp = conn_type in ("ftp", "ftps")
+    has_shell = (not is_ftp) and getattr(client, "has_shell", lambda: True)()
     remote_base = config.get("remote_path", "/").rstrip("/") or "/"
     scan_timeout = get_timeout(config, "scan")
     # 0 = unlimited → pass None so subprocess.run has no timeout
     cmd_timeout = scan_timeout if scan_timeout > 0 else None
 
-    start_method = _get_start_method(host, is_ftp)
+    start_method = _get_start_method(host, is_ftp, has_shell)
 
     # Methods ordered fastest → slowest
     methods = [
@@ -380,8 +385,8 @@ def fast_scan(client, config, remote_dir, project_root, window=None,
     for idx in range(start_method, len(methods)):
         name, method_fn = methods[idx]
 
-        # Skip SSH-only methods for FTP
-        if is_ftp and idx < 2:
+        # Skip shell methods when there is no remote shell
+        if not has_shell and idx < 2:
             continue
 
         try:
@@ -400,7 +405,7 @@ def fast_scan(client, config, remote_dir, project_root, window=None,
                 next_idx = idx + 1
                 if next_idx < len(methods):
                     next_name = methods[next_idx][0]
-                    if is_ftp and next_idx < 2:
+                    if not has_shell and next_idx < 2:
                         next_name = methods[2][0]
                     panel.log(window,
                               f"Scan via {name} failed: {e} — trying {next_name}...")

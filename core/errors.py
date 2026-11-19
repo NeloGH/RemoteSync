@@ -50,10 +50,34 @@ class ConfigError(RemoteSyncError):
     pass
 
 
+class SFTPOnlyError(RemoteConnectionError):
+    """The account allows SFTP file transfer only — no shell commands."""
+    pass
+
+
+# Messages servers print when an account is jailed to SFTP (ForceCommand
+# internal-sftp, rssh, scponly, ...). Matched case-insensitively.
+_SFTP_ONLY_SIGNATURES = (
+    "allows sftp connections only",
+    "only sftp",
+    "sftp connections only",
+    "only allows sftp",
+    "this service allows sftp",
+)
+
+
+def is_sftp_only_message(text):
+    """Return True if text is a server's 'SFTP only, no shell' rejection."""
+    low = (text or "").lower()
+    return any(sig in low for sig in _SFTP_ONLY_SIGNATURES)
+
+
 def classify_ssh_error(stderr_text):
     """Inspect SSH/SCP stderr and return the most specific exception."""
     text = (stderr_text or "").lower()
 
+    if is_sftp_only_message(text):
+        return SFTPOnlyError(stderr_text)
     if "permission denied" in text or "authentication" in text:
         return AuthenticationError(stderr_text)
     if "host key verification failed" in text:
@@ -124,6 +148,10 @@ def user_friendly_message(error):
         return "Permission denied.\n\nThe server refused the operation. Check file/directory permissions on the remote server."
     if isinstance(error, ConfigError):
         return f"Configuration error.\n\n{error}"
+    if isinstance(error, SFTPOnlyError):
+        return ("This account only allows SFTP file transfer (no shell).\n\n"
+                "Uploads, downloads and browsing work, but this action needs "
+                "a remote shell command, which the server does not allow.")
     if isinstance(error, RemoteConnectionError):
         return f"Connection error.\n\n{error}"
     return str(error)

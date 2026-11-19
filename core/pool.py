@@ -141,9 +141,9 @@ def start_keepalive(config, project_root):
 
         try:
             if client.is_connected():
-                conn_type = config.get("type", "sftp").lower()
-                if conn_type in ("sftp", "scp") and hasattr(client, '_ssh_bin') and client._ssh_bin:
-                    client._run_ssh("echo keepalive", timeout=10)
+                # SFTP clients ping over ssh (no-op for SFTP-only accounts)
+                if hasattr(client, "keepalive"):
+                    client.keepalive()
             else:
                 with _pool_lock:
                     _stop_keepalive(project_root)

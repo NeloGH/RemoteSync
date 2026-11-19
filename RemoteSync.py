@@ -30,7 +30,7 @@ from .core.config import (
     get_remote_path, create_default_config, create_inherited_config,
     invalidate_cache, CONFIG_FILENAME, should_ignore, get_timeout,
 )
-from .core.sftp_client import create_client, _shell_quote
+from .core.sftp_client import create_client
 from .core.errors import (
     RemoteConnectionError, ConnectionTimeoutError, ScanTimeoutError,
     ConfigError, is_critical, is_user_actionable, user_friendly_message,
@@ -248,6 +248,9 @@ def _run_post_upload(config, client, window):
     conn_type = config.get("type", "sftp").lower()
     if conn_type in ("ftp", "ftps"):
         panel.log(window, "post_upload_command skipped (not supported over FTP)")
+        return
+    if not getattr(client, "has_shell", lambda: True)():
+        panel.log(window, "post_upload_command skipped (account allows SFTP only, no shell)")
         return
     try:
         output = client.exec_command(cmd)
@@ -1037,7 +1040,7 @@ class RemoteSyncBrowseCommand(sublime_plugin.WindowCommand):
                        config=config, window=window)
             def do_mkdir():
                 client = pool.get_connection(config, project_root, window)
-                panel.tracked(lambda: client.exec_command(f"mkdir -p {_shell_quote(new_path)}"),
+                panel.tracked(lambda: client.mkdir(new_path),
                               window, f'Creating folder "{new_path}"')
 
         window.show_input_panel("Folder name:", "", on_done, None,
@@ -1056,7 +1059,7 @@ class RemoteSyncBrowseCommand(sublime_plugin.WindowCommand):
                        config=config, window=window)
             def do_touch():
                 client = pool.get_connection(config, project_root, window)
-                panel.tracked(lambda: client.exec_command(f"touch {_shell_quote(new_path)}"),
+                panel.tracked(lambda: client.touch(new_path),
                               window, f'Creating file "{new_path}"')
 
         window.show_input_panel("File name:", "", on_done, None,
@@ -1244,7 +1247,7 @@ class RemoteSyncBrowseCommand(sublime_plugin.WindowCommand):
                        config=config, window=window)
             def do_chmod():
                 client = pool.get_connection(config, project_root, window)
-                panel.tracked(lambda: client.exec_command(f"chmod {perms} {_shell_quote(remote_path)}"),
+                panel.tracked(lambda: client.chmod(remote_path, perms),
                               window, f'Setting permissions {perms} on "{name}"')
 
         window.show_input_panel("Permissions (e.g. 644, 755):", "644", on_done, None, None)

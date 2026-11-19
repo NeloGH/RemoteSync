@@ -87,6 +87,7 @@ Without `inherit_parent`, a nested config is fully **independent** — use this 
 | `user` | — | Login username |
 | `password` | — | Login password (or use `ssh_key_file`) |
 | `ssh_key_file` | — | Path to private key (`~/.ssh/id_rsa`) |
+| `sftp_only` | auto | Account has no shell (SFTP jail); detected automatically |
 | `port` | `22` | Server port |
 | `remote_path` | — | Base remote directory |
 | `upload_on_save` | `false` | Auto-upload on every save |
@@ -99,6 +100,14 @@ Without `inherit_parent`, a nested config is fully **independent** — use this 
 | `ignore_regexes` | `[]` | Patterns to skip (e.g. `"\\.git/"`) |
 | `exclude_extensions` | `[]` | Extensions to skip (e.g. `".log"`) |
 | `max_file_size_mb` | — | Skip files larger than this |
+
+### SFTP-only accounts (no shell)
+
+Many hosts jail SFTP users (`ForceCommand internal-sftp`, chroot). RemoteSync detects this on connect and switches to pure-SFTP mode: browsing, upload, download, rename, delete, folder creation and permission changes all run over SFTP. Folder downloads use a listing-based scan instead of `find`/`rsync`. `post_upload_command` is skipped, since it needs a remote shell. Set `"sftp_only": true` to skip the detection probe.
+
+### FTPS
+
+FTPS reuses the TLS session of the control connection on every data connection. That makes it work with servers that require it (vsftpd `require_ssl_reuse=YES`, FileZilla Server), which would otherwise fail with `522 SSL connection failed: session reuse required`.
 
 ## Plugin Settings
 
